@@ -19,3 +19,4 @@ View your app in AI Studio: https://ai.studio/apps/6526462c-d391-439b-973e-48c04
 3. Run the app:
    `npm run dev`
 "# AppyChat" 
+"# AppyChat" 
