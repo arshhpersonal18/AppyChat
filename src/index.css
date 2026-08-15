@@ -1,0 +1,118 @@
+@import "tailwindcss";
+
+:root {
+  /* Primary Colors */
+  --primary-color: #00A878;
+  --primary-dark: #008F65;
+  --primary-light: #33C49A;
+  --primary-gradient: linear-gradient(135deg, #00A878 0%, #008F65 100%);
+  
+  /* Background Colors */
+  --background-primary: #0A0A0A;
+  --background-secondary: #121212;
+  --background-tertiary: #1A1A1A;
+  --background-card: #1E1E1E;
+  --background-input: #282828;
+  
+  /* Text Colors */
+  --text-primary: #FFFFFF;
+  --text-secondary: #E0E0E0;
+  --text-tertiary: #A0A0A0;
+  --text-muted: #666666;
+  
+  /* Message Bubbles */
+  --bubble-me: #00A878;
+  --bubble-me-text: #121212;
+  --bubble-other: #2C2C2C;
+  --bubble-other-text: #E0E0E0;
+  
+  /* Status Colors */
+  --status-online: #00E676;
+  --status-offline: #757575;
+  --status-away: #FFD740;
+  
+  /* Border & Shadow */
+  --border-color: #2C2C2C;
+  --shadow-light: 0 2px 8px rgba(0, 0, 0, 0.3);
+  --shadow-heavy: 0 4px 20px rgba(0, 0, 0, 0.5);
+  
+  /* Spacing */
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 16px;
+  --spacing-lg: 24px;
+  --spacing-xl: 32px;
+  
+  /* Border Radius */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+  --radius-full: 50%;
+  
+  /* Typography */
+  --font-family: 'Poppins', sans-serif;
+  --font-size-xs: 12px;
+  --font-size-sm: 14px;
+  --font-size-md: 16px;
+  --font-size-lg: 20px;
+  --font-size-xl: 24px;
+  --font-size-xxl: 32px;
+  
+  /* Transitions */
+  --transition-fast: 0.2s ease;
+  --transition-normal: 0.3s ease;
+  --transition-slow: 0.5s ease;
+  
+  /* Z-Index Layers */
+  --z-bottom: 1;
+  --z-middle: 10;
+  --z-top: 100;
+  --z-modal: 1000;
+  --z-toast: 2000;
+}
+
+@keyframes typingBounce {
+  0%, 60%, 100% {
+    transform: translateY(0);
+  }
+  30% {
+    transform: translateY(-6px);
+  }
+}
+
+@keyframes pulseRinging {
+  0% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(0, 168, 120, 0.7);
+  }
+  70% {
+    transform: scale(1.05);
+    box-shadow: 0 0 0 16px rgba(0, 168, 120, 0);
+  }
+  100% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(0, 168, 120, 0);
+  }
+}
+
+.ringing-pulse {
+  animation: pulseRinging 2s infinite ease-in-out;
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #2C2C2C;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #3e3e3e;
+}
+

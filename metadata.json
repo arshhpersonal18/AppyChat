@@ -1,0 +1,11 @@
+{
+  "name": "AppyChat",
+  "description": "Complete Realtime Chat and WebRTC Calling application with voice/video calling, contacts, friend requests, real-time messaging, and audio synthesizer ringtones.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

@@ -1,0 +1,79 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User profile in AppyChat",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "name": { "type": "string", "maxLength": 50 },
+        "bio": { "type": "string", "maxLength": 150 },
+        "identifier": { "type": "string", "maxLength": 20 },
+        "dpUrl": { "type": "string" },
+        "status": { "type": "string", "enum": ["online", "offline", "away"] },
+        "last_changed": { "type": "number" },
+        "email": { "type": "string" }
+      },
+      "required": ["uid", "name", "identifier"]
+    },
+    "FriendRequest": {
+      "title": "FriendRequest",
+      "description": "Friend request between two users",
+      "type": "object",
+      "properties": {
+        "senderUid": { "type": "string" },
+        "targetUid": { "type": "string" },
+        "name": { "type": "string" },
+        "identifier": { "type": "string" },
+        "dpUrl": { "type": "string" },
+        "timestamp": { "type": "number" },
+        "status": { "type": "string", "enum": ["pending", "accepted", "declined"] }
+      },
+      "required": ["senderUid", "targetUid", "name"]
+    },
+    "ChatMessage": {
+      "title": "ChatMessage",
+      "description": "Individual message in a chat conversation",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "from": { "type": "string" },
+        "text": { "type": "string", "maxLength": 5000 },
+        "timestamp": { "type": "number" },
+        "dpUrl": { "type": "string" }
+      },
+      "required": ["from", "text", "timestamp"]
+    },
+    "CallData": {
+      "title": "CallData",
+      "description": "WebRTC Call signaling document",
+      "type": "object",
+      "properties": {
+        "callId": { "type": "string" },
+        "type": { "type": "string", "enum": ["voice", "video"] },
+        "from": { "type": "string" },
+        "to": { "type": "string" },
+        "status": { "type": "string", "enum": ["ringing", "ongoing", "missed", "ended"] }
+      },
+      "required": ["callId", "type", "from", "to", "status"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profile records"
+    },
+    "/friend_requests/{requestId}": {
+      "schema": "FriendRequest",
+      "description": "Friend requests"
+    },
+    "/chats/{chatId}/messages/{messageId}": {
+      "schema": "ChatMessage",
+      "description": "Messages inside a chat room"
+    },
+    "/calls/{callId}": {
+      "schema": "CallData",
+      "description": "WebRTC calling session"
+    }
+  }
+}
