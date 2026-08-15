@@ -24,10 +24,20 @@ import {
   orderBy,
   onSnapshot,
   addDoc,
-  serverTimestamp,
   getDocFromServer
 } from 'firebase/firestore';
-import { UserProfile, FriendRequest, ChatMessage, CallData, CallLog } from '../types';
+import {
+  UserProfile,
+  FriendRequest,
+  ChatMessage,
+  CallData,
+  CallLog,
+  GroupChat,
+  GroupMember,
+  ChatSettings,
+  AppSettings,
+  ChatCategory
+} from '../types';
 import { generateInitialsAvatar, generateIdentifier } from './avatar';
 
 // Real Firebase Config provided by user
@@ -149,7 +159,8 @@ export async function signUpWithEmail(email: string, pass: string, name: string,
       identifier,
       dpUrl,
       status: 'online',
-      last_changed: Date.now()
+      last_changed: Date.now(),
+      createdAt: Date.now()
     };
 
     await setDoc(doc(db, 'users', user.uid), {
@@ -161,7 +172,6 @@ export async function signUpWithEmail(email: string, pass: string, name: string,
     notifyCustomAuth(profile, false);
     return profile;
   } catch (err: any) {
-    // If Firebase Auth provider is not enabled in console (auth/configuration-not-found or operation-not-allowed)
     if (
       err.code === 'auth/configuration-not-found' ||
       err.code === 'auth/operation-not-allowed' ||
@@ -185,7 +195,8 @@ export async function signUpWithEmail(email: string, pass: string, name: string,
         identifier,
         dpUrl,
         status: 'online',
-        last_changed: Date.now()
+        last_changed: Date.now(),
+        createdAt: Date.now()
       };
 
       await setDoc(doc(db, 'users', fallbackUid), {
@@ -220,7 +231,8 @@ export async function signInWithEmail(email: string, pass: string): Promise<User
         identifier,
         dpUrl,
         status: 'online',
-        last_changed: Date.now()
+        last_changed: Date.now(),
+        createdAt: Date.now()
       };
       await setDoc(doc(db, 'users', user.uid), {
         ...profile,
@@ -234,7 +246,6 @@ export async function signInWithEmail(email: string, pass: string): Promise<User
     notifyCustomAuth(profile, false);
     return profile;
   } catch (err: any) {
-    // If Firebase Auth provider is not enabled in console
     if (
       err.code === 'auth/configuration-not-found' ||
       err.code === 'auth/operation-not-allowed' ||
@@ -244,7 +255,6 @@ export async function signInWithEmail(email: string, pass: string): Promise<User
       
       let profile = await findUserByEmail(cleanEmail);
       if (!profile) {
-        // Automatically create account if none found
         const fallbackUid = generateSafeUid(cleanEmail);
         const identifier = generateIdentifier();
         const cleanName = cleanEmail.split('@')[0] || 'User';
@@ -256,7 +266,8 @@ export async function signInWithEmail(email: string, pass: string): Promise<User
           identifier,
           dpUrl,
           status: 'online',
-          last_changed: Date.now()
+          last_changed: Date.now(),
+          createdAt: Date.now()
         };
         await setDoc(doc(db, 'users', fallbackUid), {
           ...profile,
@@ -294,7 +305,8 @@ export async function signInWithGoogle(): Promise<UserProfile> {
         identifier,
         dpUrl,
         status: 'online',
-        last_changed: Date.now()
+        last_changed: Date.now(),
+        createdAt: Date.now()
       };
       await setDoc(doc(db, 'users', user.uid), {
         ...profile,
@@ -342,7 +354,6 @@ export async function signOutUser(uid?: string): Promise<void> {
 export function subscribeAuthState(callback: (user: UserProfile | null, loading: boolean) => void): () => void {
   customAuthListeners.push(callback);
 
-  // Check stored user first
   const stored = getStoredUser();
   if (stored) {
     getUserProfile(stored.uid).then((fresh) => {
@@ -364,7 +375,7 @@ export function subscribeAuthState(callback: (user: UserProfile | null, loading:
         callback(profile, false);
       } else {
         const identifier = generateIdentifier();
-        const cleanName = firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'User';
+        const cleanName = firebaseUser.displayName || 'AppyChat User';
         const dpUrl = firebaseUser.photoURL || generateInitialsAvatar(cleanName, identifier);
         const newProfile: UserProfile = {
           uid: firebaseUser.uid,
@@ -373,7 +384,8 @@ export function subscribeAuthState(callback: (user: UserProfile | null, loading:
           identifier,
           dpUrl,
           status: 'online',
-          last_changed: Date.now()
+          last_changed: Date.now(),
+          createdAt: Date.now()
         };
         try {
           await setDoc(doc(db, 'users', firebaseUser.uid), {
@@ -421,6 +433,7 @@ export async function updateUserProfile(profile: UserProfile): Promise<void> {
       ...profile,
       last_changed: Date.now()
     }, { merge: true });
+    setStoredUser(profile);
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, `users/${profile.uid}`);
   }
@@ -430,6 +443,7 @@ export async function updateUserPresence(uid: string, status: 'online' | 'offlin
   try {
     await updateDoc(doc(db, 'users', uid), {
       status,
+      lastSeen: Date.now(),
       last_changed: Date.now()
     });
   } catch {
@@ -467,6 +481,55 @@ export async function findUserByEmail(email: string): Promise<UserProfile | null
   }
 }
 
+// User Block / Report
+export async function blockUser(currentUid: string, targetUid: string): Promise<void> {
+  try {
+    const user = await getUserProfile(currentUid);
+    if (!user) return;
+    const currentBlocked = user.blockedUids || [];
+    if (!currentBlocked.includes(targetUid)) {
+      const updatedBlocked = [...currentBlocked, targetUid];
+      await updateDoc(doc(db, 'users', currentUid), {
+        blockedUids: updatedBlocked
+      });
+      user.blockedUids = updatedBlocked;
+      setStoredUser(user);
+    }
+  } catch (err) {
+    console.error('Error blocking user:', err);
+  }
+}
+
+export async function unblockUser(currentUid: string, targetUid: string): Promise<void> {
+  try {
+    const user = await getUserProfile(currentUid);
+    if (!user) return;
+    const currentBlocked = user.blockedUids || [];
+    const updatedBlocked = currentBlocked.filter(id => id !== targetUid);
+    await updateDoc(doc(db, 'users', currentUid), {
+      blockedUids: updatedBlocked
+    });
+    user.blockedUids = updatedBlocked;
+    setStoredUser(user);
+  } catch (err) {
+    console.error('Error unblocking user:', err);
+  }
+}
+
+export async function reportContent(reporterUid: string, targetId: string, reason: string, type: 'user' | 'message' | 'group'): Promise<void> {
+  try {
+    await addDoc(collection(db, 'reports'), {
+      reporterUid,
+      targetId,
+      reason,
+      type,
+      timestamp: Date.now()
+    });
+  } catch (err) {
+    console.error('Error submitting report:', err);
+  }
+}
+
 // --- CONTACTS & FRIEND REQUESTS ---
 
 export function subscribeUserContacts(uid: string, callback: (contacts: UserProfile[]) => void): () => void {
@@ -476,7 +539,6 @@ export function subscribeUserContacts(uid: string, callback: (contacts: UserProf
     snapshot.forEach((d) => {
       contacts.push(d.data() as UserProfile);
     });
-    // Sort contacts alphabetically
     contacts.sort((a, b) => a.name.localeCompare(b.name));
     callback(contacts);
   }, (error) => {
@@ -511,9 +573,35 @@ export function subscribeFriendRequests(uid: string, callback: (requests: Friend
   });
 }
 
+export function subscribeOutgoingRequests(uid: string, callback: (requests: FriendRequest[]) => void): () => void {
+  const q = query(
+    collection(db, 'friend_requests'),
+    where('senderUid', '==', uid),
+    where('status', '==', 'pending')
+  );
+
+  return onSnapshot(q, (snapshot) => {
+    const reqs: FriendRequest[] = [];
+    snapshot.forEach((d) => {
+      const data = d.data();
+      reqs.push({
+        id: d.id,
+        senderUid: data.senderUid,
+        targetUid: data.targetUid,
+        name: data.name,
+        identifier: data.identifier,
+        dpUrl: data.dpUrl,
+        timestamp: data.timestamp || Date.now()
+      });
+    });
+    callback(reqs);
+  }, (error) => {
+    handleFirestoreError(error, OperationType.LIST, 'friend_requests');
+  });
+}
+
 export async function sendFriendRequest(currentUser: UserProfile, targetUser: UserProfile): Promise<void> {
   try {
-    // Check if request already exists
     const q = query(
       collection(db, 'friend_requests'),
       where('senderUid', '==', currentUser.uid),
@@ -545,17 +633,11 @@ export async function acceptFriendRequest(
   senderUid: string
 ): Promise<void> {
   try {
-    // Get sender's profile
     const sender = await getUserProfile(senderUid);
     if (!sender) return;
 
-    // Add sender to current user's contacts
     await setDoc(doc(db, 'users', currentUser.uid, 'contacts', sender.uid), sender);
-
-    // Add current user to sender's contacts
     await setDoc(doc(db, 'users', sender.uid, 'contacts', currentUser.uid), currentUser);
-
-    // Remove or update the friend request
     await deleteDoc(doc(db, 'friend_requests', requestId));
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, `friend_requests/${requestId}`);
@@ -567,6 +649,14 @@ export async function declineFriendRequest(requestId: string): Promise<void> {
     await deleteDoc(doc(db, 'friend_requests', requestId));
   } catch (error) {
     handleFirestoreError(error, OperationType.DELETE, `friend_requests/${requestId}`);
+  }
+}
+
+export async function removeContact(currentUserUid: string, contactUid: string): Promise<void> {
+  try {
+    await deleteDoc(doc(db, 'users', currentUserUid, 'contacts', contactUid));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, `users/${currentUserUid}/contacts/${contactUid}`);
   }
 }
 
@@ -589,9 +679,28 @@ export function subscribeMessages(chatId: string, callback: (messages: ChatMessa
       msgs.push({
         id: d.id,
         from: data.from,
-        text: data.text,
+        senderName: data.senderName,
+        text: data.text || '',
         timestamp: data.timestamp || Date.now(),
-        dpUrl: data.dpUrl
+        dpUrl: data.dpUrl,
+        edited: data.edited,
+        editedAt: data.editedAt,
+        deletedForEveryone: data.deletedForEveryone,
+        deletedForUids: data.deletedForUids,
+        replyTo: data.replyTo,
+        forwardFrom: data.forwardFrom,
+        pinned: data.pinned,
+        starredUids: data.starredUids,
+        reactions: data.reactions,
+        mediaType: data.mediaType || 'text',
+        mediaUrl: data.mediaUrl,
+        mediaUrls: data.mediaUrls,
+        mediaInfo: data.mediaInfo,
+        location: data.location,
+        sharedContact: data.sharedContact,
+        status: data.status || 'read',
+        linkPreviews: data.linkPreviews,
+        mentions: data.mentions
       });
     });
     callback(msgs);
@@ -600,20 +709,133 @@ export function subscribeMessages(chatId: string, callback: (messages: ChatMessa
   });
 }
 
-export async function sendChatMessage(chatId: string, from: string, text: string, dpUrl?: string): Promise<void> {
+export const subscribeChatMessages = subscribeMessages;
+
+export async function sendChatMessage(
+  chatId: string,
+  from: string,
+  text: string,
+  dpUrl?: string,
+  extra?: Partial<ChatMessage>
+): Promise<string> {
   try {
-    await addDoc(collection(db, 'chats', chatId, 'messages'), {
+    const docData: Record<string, any> = {
       from,
-      text: text.trim(),
+      text: (text || '').trim(),
       timestamp: Date.now(),
-      dpUrl: dpUrl || ''
+      dpUrl: dpUrl || '',
+      status: 'sent',
+      mediaType: extra?.mediaType || 'text',
+      ...extra
+    };
+
+    // Clean undefined fields
+    Object.keys(docData).forEach(k => {
+      if (docData[k] === undefined) delete docData[k];
     });
+
+    const docRef = await addDoc(collection(db, 'chats', chatId, 'messages'), docData);
+    return docRef.id;
   } catch (error) {
     handleFirestoreError(error, OperationType.CREATE, `chats/${chatId}/messages`);
+    throw error;
   }
 }
 
 export const sendMessage = sendChatMessage;
+
+export async function editChatMessage(chatId: string, messageId: string, newText: string): Promise<void> {
+  try {
+    await updateDoc(doc(db, 'chats', chatId, 'messages', messageId), {
+      text: newText.trim(),
+      edited: true,
+      editedAt: Date.now()
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, `chats/${chatId}/messages/${messageId}`);
+  }
+}
+
+export async function deleteMessageForEveryone(chatId: string, messageId: string): Promise<void> {
+  try {
+    await updateDoc(doc(db, 'chats', chatId, 'messages', messageId), {
+      deletedForEveryone: true,
+      text: 'This message was deleted',
+      mediaUrl: '',
+      mediaUrls: []
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, `chats/${chatId}/messages/${messageId}`);
+  }
+}
+
+export async function deleteMessageForMe(chatId: string, messageId: string, currentUid: string): Promise<void> {
+  try {
+    const msgRef = doc(db, 'chats', chatId, 'messages', messageId);
+    const snap = await getDoc(msgRef);
+    if (snap.exists()) {
+      const data = snap.data();
+      const deletedFor = data.deletedForUids || [];
+      if (!deletedFor.includes(currentUid)) {
+        await updateDoc(msgRef, {
+          deletedForUids: [...deletedFor, currentUid]
+        });
+      }
+    }
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, `chats/${chatId}/messages/${messageId}`);
+  }
+}
+
+export async function toggleMessageReaction(chatId: string, messageId: string, emoji: string, uid: string): Promise<void> {
+  try {
+    const msgRef = doc(db, 'chats', chatId, 'messages', messageId);
+    const snap = await getDoc(msgRef);
+    if (!snap.exists()) return;
+    const data = snap.data();
+    const reactions: Record<string, string[]> = data.reactions || {};
+
+    const currentUsers = reactions[emoji] || [];
+    if (currentUsers.includes(uid)) {
+      // Remove reaction
+      reactions[emoji] = currentUsers.filter(u => u !== uid);
+      if (reactions[emoji].length === 0) {
+        delete reactions[emoji];
+      }
+    } else {
+      // Add reaction (and remove any prior reaction by this user if single-reaction mode or keep multi)
+      reactions[emoji] = [...currentUsers, uid];
+    }
+
+    await updateDoc(msgRef, { reactions });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, `chats/${chatId}/messages/${messageId}`);
+  }
+}
+
+export async function togglePinMessage(chatId: string, messageId: string, isPinned: boolean): Promise<void> {
+  try {
+    await updateDoc(doc(db, 'chats', chatId, 'messages', messageId), {
+      pinned: isPinned
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, `chats/${chatId}/messages/${messageId}`);
+  }
+}
+
+export async function toggleStarMessage(chatId: string, messageId: string, uid: string): Promise<void> {
+  try {
+    const msgRef = doc(db, 'chats', chatId, 'messages', messageId);
+    const snap = await getDoc(msgRef);
+    if (!snap.exists()) return;
+    const data = snap.data();
+    const starred: string[] = data.starredUids || [];
+    const updatedStarred = starred.includes(uid) ? starred.filter(u => u !== uid) : [...starred, uid];
+    await updateDoc(msgRef, { starredUids: updatedStarred });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, `chats/${chatId}/messages/${messageId}`);
+  }
+}
 
 export async function clearChatHistory(chatId: string): Promise<void> {
   try {
@@ -626,10 +848,11 @@ export async function clearChatHistory(chatId: string): Promise<void> {
   }
 }
 
-export async function setTypingStatus(chatId: string, uid: string, isTyping: boolean): Promise<void> {
+export async function setTypingStatus(chatId: string, uid: string, isTyping: boolean, userName?: string): Promise<void> {
   try {
     await setDoc(doc(db, 'chats', chatId, 'typing', uid), {
       isTyping,
+      name: userName || 'Someone',
       timestamp: Date.now()
     }, { merge: true });
   } catch {
@@ -637,28 +860,199 @@ export async function setTypingStatus(chatId: string, uid: string, isTyping: boo
   }
 }
 
-export function subscribeTyping(chatId: string, callback: (typingMap: Record<string, boolean>) => void): () => void {
+export function subscribeTyping(chatId: string, callback: (typingMap: Record<string, { isTyping: boolean; name?: string }>) => void): () => void {
   return onSnapshot(collection(db, 'chats', chatId, 'typing'), (snapshot) => {
-    const map: Record<string, boolean> = {};
+    const map: Record<string, { isTyping: boolean; name?: string }> = {};
     const now = Date.now();
     snapshot.forEach((d) => {
       const data = d.data();
-      // Only treat typing as active if updated within last 5 seconds
-      if (data.isTyping && now - (data.timestamp || 0) < 5000) {
-        map[d.id] = true;
+      if (data.isTyping && now - (data.timestamp || 0) < 6000) {
+        map[d.id] = { isTyping: true, name: data.name };
       } else {
-        map[d.id] = false;
+        map[d.id] = { isTyping: false };
       }
     });
     callback(map);
   });
 }
 
+// --- GROUP CHATS ---
+
+export async function createGroupChat(
+  name: string,
+  description: string,
+  avatarUrl: string,
+  createdBy: UserProfile,
+  memberProfiles: UserProfile[]
+): Promise<GroupChat> {
+  const members: GroupMember[] = [
+    {
+      uid: createdBy.uid,
+      role: 'owner',
+      joinedAt: Date.now(),
+      name: createdBy.name,
+      dpUrl: createdBy.dpUrl,
+      identifier: createdBy.identifier
+    },
+    ...memberProfiles.map(m => ({
+      uid: m.uid,
+      role: 'member' as const,
+      joinedAt: Date.now(),
+      name: m.name,
+      dpUrl: m.dpUrl,
+      identifier: m.identifier
+    }))
+  ];
+
+  const inviteCode = `grp-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+
+  const groupData: Omit<GroupChat, 'id'> = {
+    name: name.trim(),
+    description: description.trim(),
+    avatarUrl: avatarUrl || generateInitialsAvatar(name, inviteCode),
+    createdBy: createdBy.uid,
+    createdAt: Date.now(),
+    members,
+    inviteCode,
+    lastMessage: {
+      text: `${createdBy.name} created the group "${name}"`,
+      senderName: 'AppyChat',
+      timestamp: Date.now()
+    }
+  };
+
+  const docRef = await addDoc(collection(db, 'groups'), groupData);
+  return { id: docRef.id, ...groupData };
+}
+
+export function subscribeUserGroups(uid: string, callback: (groups: GroupChat[]) => void): () => void {
+  return onSnapshot(collection(db, 'groups'), (snapshot) => {
+    const groups: GroupChat[] = [];
+    snapshot.forEach((d) => {
+      const data = d.data();
+      const isMember = (data.members || []).some((m: GroupMember) => m.uid === uid);
+      if (isMember) {
+        groups.push({
+          id: d.id,
+          name: data.name,
+          description: data.description,
+          avatarUrl: data.avatarUrl,
+          createdBy: data.createdBy,
+          createdAt: data.createdAt,
+          members: data.members || [],
+          inviteCode: data.inviteCode,
+          pinnedMessageId: data.pinnedMessageId,
+          announcement: data.announcement,
+          customTheme: data.customTheme,
+          wallpaper: data.wallpaper,
+          lastMessage: data.lastMessage
+        });
+      }
+    });
+    groups.sort((a, b) => (b.lastMessage?.timestamp || b.createdAt) - (a.lastMessage?.timestamp || a.createdAt));
+    callback(groups);
+  }, (error) => {
+    handleFirestoreError(error, OperationType.LIST, 'groups');
+  });
+}
+
+export function subscribeGroupDetails(groupId: string, callback: (group: GroupChat | null) => void): () => void {
+  return onSnapshot(doc(db, 'groups', groupId), (snap) => {
+    if (snap.exists()) {
+      callback({ id: snap.id, ...snap.data() } as GroupChat);
+    } else {
+      callback(null);
+    }
+  });
+}
+
+export async function updateGroupInfo(groupId: string, updates: Partial<GroupChat>): Promise<void> {
+  try {
+    await updateDoc(doc(db, 'groups', groupId), updates);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, `groups/${groupId}`);
+  }
+}
+
+export async function addGroupMember(groupId: string, newMember: UserProfile): Promise<void> {
+  try {
+    const groupRef = doc(db, 'groups', groupId);
+    const snap = await getDoc(groupRef);
+    if (!snap.exists()) return;
+    const group = snap.data() as GroupChat;
+    if (group.members.some(m => m.uid === newMember.uid)) return;
+
+    const updatedMembers: GroupMember[] = [
+      ...group.members,
+      {
+        uid: newMember.uid,
+        role: 'member',
+        joinedAt: Date.now(),
+        name: newMember.name,
+        dpUrl: newMember.dpUrl,
+        identifier: newMember.identifier
+      }
+    ];
+    await updateDoc(groupRef, { members: updatedMembers });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, `groups/${groupId}`);
+  }
+}
+
+export async function removeGroupMember(groupId: string, targetUid: string): Promise<void> {
+  try {
+    const groupRef = doc(db, 'groups', groupId);
+    const snap = await getDoc(groupRef);
+    if (!snap.exists()) return;
+    const group = snap.data() as GroupChat;
+    const updatedMembers = group.members.filter(m => m.uid !== targetUid);
+    await updateDoc(groupRef, { members: updatedMembers });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, `groups/${groupId}`);
+  }
+}
+
+export async function updateMemberRole(groupId: string, targetUid: string, role: 'admin' | 'member'): Promise<void> {
+  try {
+    const groupRef = doc(db, 'groups', groupId);
+    const snap = await getDoc(groupRef);
+    if (!snap.exists()) return;
+    const group = snap.data() as GroupChat;
+    const updatedMembers = group.members.map(m => m.uid === targetUid ? { ...m, role } : m);
+    await updateDoc(groupRef, { members: updatedMembers });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, `groups/${groupId}`);
+  }
+}
+
+export async function leaveGroup(groupId: string, currentUid: string): Promise<void> {
+  await removeGroupMember(groupId, currentUid);
+}
+
+export async function joinGroupByInviteCode(inviteCode: string, user: UserProfile): Promise<GroupChat | null> {
+  try {
+    const cleanCode = inviteCode.trim().toUpperCase();
+    const q = query(collection(db, 'groups'), where('inviteCode', '==', cleanCode));
+    const snap = await getDocs(q);
+    if (snap.empty) return null;
+
+    const groupDoc = snap.docs[0];
+    const group = { id: groupDoc.id, ...groupDoc.data() } as GroupChat;
+
+    if (!group.members.some(m => m.uid === user.uid)) {
+      await addGroupMember(group.id, user);
+    }
+    return group;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.LIST, 'groups');
+    return null;
+  }
+}
+
 // --- WEBRTC CALL SIGNALING ---
 
 export async function saveCallSignal(callData: CallData): Promise<void> {
   try {
-    // Strip non-serializable fields if any
     const safeData = JSON.parse(JSON.stringify(callData));
     await setDoc(doc(db, 'calls', callData.callId), safeData, { merge: true });
   } catch (error) {
@@ -734,4 +1128,91 @@ export function subscribeCallLogs(uid: string, callback: (logs: CallLog[]) => vo
   }, (error) => {
     handleFirestoreError(error, OperationType.LIST, `users/${uid}/call_logs`);
   });
+}
+
+// --- LOCAL STORAGE CHAT & APP SETTINGS ---
+
+const DEFAULT_APP_SETTINGS: AppSettings = {
+  theme: 'dark',
+  accentColor: '#00A878',
+  wallpaper: 'default',
+  bubbleStyle: 'modern',
+  soundEnabled: true,
+  vibrationEnabled: true,
+  toastNotifications: true,
+  readReceipts: true,
+  typingIndicator: true,
+  lastSeenPrivacy: 'everyone',
+  onlineStatusPrivacy: 'everyone'
+};
+
+const DEFAULT_CHAT_SETTINGS: ChatSettings = {
+  pinnedChats: [],
+  archivedChats: [],
+  mutedChats: {},
+  unreadOverrides: {},
+  chatWallpapers: {},
+  chatThemes: {},
+  drafts: {}
+};
+
+export function getLocalAppSettings(): AppSettings {
+  try {
+    const raw = localStorage.getItem('appychat_app_settings');
+    return raw ? { ...DEFAULT_APP_SETTINGS, ...JSON.parse(raw) } : DEFAULT_APP_SETTINGS;
+  } catch {
+    return DEFAULT_APP_SETTINGS;
+  }
+}
+
+export function saveLocalAppSettings(settings: Partial<AppSettings>): AppSettings {
+  const updated = { ...getLocalAppSettings(), ...settings };
+  try {
+    localStorage.setItem('appychat_app_settings', JSON.stringify(updated));
+  } catch {
+    // ignore
+  }
+  return updated;
+}
+
+export function getLocalChatSettings(): ChatSettings {
+  try {
+    const raw = localStorage.getItem('appychat_chat_settings');
+    return raw ? { ...DEFAULT_CHAT_SETTINGS, ...JSON.parse(raw) } : DEFAULT_CHAT_SETTINGS;
+  } catch {
+    return DEFAULT_CHAT_SETTINGS;
+  }
+}
+
+export function saveLocalChatSettings(settings: Partial<ChatSettings>): ChatSettings {
+  const updated = { ...getLocalChatSettings(), ...settings };
+  try {
+    localStorage.setItem('appychat_chat_settings', JSON.stringify(updated));
+  } catch {
+    // ignore
+  }
+  return updated;
+}
+
+export function getLocalCategories(): ChatCategory[] {
+  try {
+    const raw = localStorage.getItem('appychat_custom_categories');
+    return raw ? JSON.parse(raw) : [
+      { id: 'cat_family', name: 'Family', isCustom: true, chatIds: [] },
+      { id: 'cat_friends', name: 'Friends', isCustom: true, chatIds: [] },
+      { id: 'cat_work', name: 'Work', isCustom: true, chatIds: [] },
+      { id: 'cat_school', name: 'School', isCustom: true, chatIds: [] },
+      { id: 'cat_important', name: 'Important', isCustom: true, chatIds: [] },
+    ];
+  } catch {
+    return [];
+  }
+}
+
+export function saveLocalCategories(categories: ChatCategory[]) {
+  try {
+    localStorage.setItem('appychat_custom_categories', JSON.stringify(categories));
+  } catch {
+    // ignore
+  }
 }

@@ -1,11 +1,24 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { UserProfile, FriendRequest, CallLog, NavigationTab, ToastMessage, CallData } from './types';
+import {
+  UserProfile,
+  FriendRequest,
+  CallLog,
+  NavigationTab,
+  ToastMessage,
+  CallData,
+  GroupChat,
+  ChatMessage,
+  AppSettings,
+  ChatSettings
+} from './types';
 import {
   subscribeAuthState,
   subscribeUserContacts,
+  subscribeUserGroups,
   subscribeFriendRequests,
   subscribeCallLogs,
   subscribeIncomingCalls,
+  subscribeChatMessages,
   acceptFriendRequest,
   declineFriendRequest,
   updateUserProfile,
@@ -25,28 +38,69 @@ import { AddFriendModal } from './components/AddFriendModal';
 import { ProfileModal } from './components/ProfileModal';
 import { AuthModal } from './components/AuthModal';
 import { Toast } from './components/Toast';
+import { GroupCreateModal } from './components/GroupCreateModal';
+import { SettingsModal } from './components/SettingsModal';
+import { GlobalSearchModal } from './components/GlobalSearchModal';
+
+const DEFAULT_SETTINGS: AppSettings = {
+  theme: 'dark',
+  accentColor: '#00A878',
+  wallpaper: 'default',
+  soundEnabled: true,
+  vibrationEnabled: true,
+  readReceipts: true,
+  typingIndicator: true,
+  lastSeenPrivacy: 'everyone',
+  onlineStatusPrivacy: 'everyone',
+  bubbleStyle: 'modern',
+  toastNotifications: true
+};
 
 export default function App() {
-  // Current user state (from Firebase Auth)
+  // Current user state
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
 
+  // Navigation & Active Chat State
   const [currentTab, setCurrentTab] = useState<NavigationTab>('home');
+  const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [activeChatContact, setActiveChatContact] = useState<UserProfile | null>(null);
+  const [activeChatGroup, setActiveChatGroup] = useState<GroupChat | null>(null);
+  const [currentMessages, setCurrentMessages] = useState<ChatMessage[]>([]);
 
-  // Real-time Data lists from Firestore
+  // Real-time collections from Firestore
   const [contacts, setContacts] = useState<UserProfile[]>([]);
+  const [groups, setGroups] = useState<GroupChat[]>([]);
   const [requests, setRequests] = useState<FriendRequest[]>([]);
   const [callLogs, setCallLogs] = useState<CallLog[]>([]);
 
-  // Search & Navigation states
+  // App Settings & Preferences
+  const [appSettings, setAppSettings] = useState<AppSettings>(() => {
+    try {
+      const saved = localStorage.getItem('appychat_settings');
+      return saved ? { ...DEFAULT_SETTINGS, ...JSON.parse(saved) } : DEFAULT_SETTINGS;
+    } catch {
+      return DEFAULT_SETTINGS;
+    }
+  });
+
+  const [chatSettingsMap, setChatSettingsMap] = useState<Record<string, ChatSettings>>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('appychat_chat_settings') || '{}');
+    } catch {
+      return {};
+    }
+  });
+
+  // Search & Modals
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-
-  // Modals & Panels
   const [isSideMenuOpen, setIsSideMenuOpen] = useState(false);
   const [isAddFriendOpen, setIsAddFriendOpen] = useState(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isGlobalSearchOpen, setIsGlobalSearchOpen] = useState(false);
 
   // WebRTC Call states
   const [incomingCall, setIncomingCall] = useState<CallData | null>(null);
@@ -56,15 +110,64 @@ export default function App() {
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
   const showToast = useCallback((text: string, type: 'info' | 'success' | 'error' = 'info') => {
+    if (!appSettings.toastNotifications) return;
     const id = `toast_${Date.now()}`;
     setToasts((prev) => [...prev, { id, text, type }]);
     setTimeout(() => {
       setToasts((prev) => prev.filter((t) => t.id !== id));
     }, 3500);
-  }, []);
+  }, [appSettings.toastNotifications]);
 
   const dismissToast = (id: string) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
+  };
+
+  const handleUpdateAppSettings = (updates: Partial<AppSettings>) => {
+    setAppSettings((prev) => {
+      const updated = { ...prev, ...updates };
+      localStorage.setItem('appychat_settings', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  const handleTogglePinChat = (chatId: string) => {
+    setChatSettingsMap((prev) => {
+      const current = prev[chatId] || {};
+      const updated = {
+        ...prev,
+        [chatId]: { ...current, pinned: !current.pinned }
+      };
+      localStorage.setItem('appychat_chat_settings', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  const handleToggleArchiveChat = (chatId: string) => {
+    setChatSettingsMap((prev) => {
+      const current = prev[chatId] || {};
+      const updated = {
+        ...prev,
+        [chatId]: { ...current, archived: !current.archived }
+      };
+      localStorage.setItem('appychat_chat_settings', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  const handleToggleMuteChat = (chatId: string, hours: number = 8) => {
+    setChatSettingsMap((prev) => {
+      const current = prev[chatId] || {};
+      const isMuted = !!current.mutedUntil && current.mutedUntil > Date.now();
+      const updated = {
+        ...prev,
+        [chatId]: {
+          ...current,
+          mutedUntil: isMuted ? 0 : Date.now() + hours * 3600 * 1000
+        }
+      };
+      localStorage.setItem('appychat_chat_settings', JSON.stringify(updated));
+      return updated;
+    });
   };
 
   // 1. Listen for Firebase Auth State
@@ -84,6 +187,7 @@ export default function App() {
   useEffect(() => {
     if (!currentUser) {
       setContacts([]);
+      setGroups([]);
       setRequests([]);
       setCallLogs([]);
       setIncomingCall(null);
@@ -97,12 +201,17 @@ export default function App() {
     };
     window.addEventListener('beforeunload', handleBeforeUnload);
 
-    // Subscribe to Firestore Contacts
+    // Subscribe to Contacts
     const unsubContacts = subscribeUserContacts(uid, (userContacts) => {
       setContacts(userContacts);
     });
 
-    // Subscribe to Firestore Friend Requests
+    // Subscribe to Groups
+    const unsubGroups = subscribeUserGroups(uid, (userGroups) => {
+      setGroups(userGroups);
+    });
+
+    // Subscribe to Friend Requests
     const unsubRequests = subscribeFriendRequests(uid, (newRequests) => {
       setRequests((prev) => {
         if (newRequests.length > prev.length) {
@@ -112,12 +221,12 @@ export default function App() {
       });
     });
 
-    // Subscribe to Firestore Call Logs
+    // Subscribe to Call Logs
     const unsubLogs = subscribeCallLogs(uid, (logs) => {
       setCallLogs(logs);
     });
 
-    // Subscribe to Firestore Incoming Calls
+    // Subscribe to Incoming Calls
     const unsubIncomingCalls = subscribeIncomingCalls(uid, (call) => {
       if (call && call.status === 'ringing' && call.from !== uid) {
         setIncomingCall(call);
@@ -129,13 +238,28 @@ export default function App() {
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload);
       unsubContacts();
+      unsubGroups();
       unsubRequests();
       unsubLogs();
       unsubIncomingCalls();
     };
   }, [currentUser, showToast]);
 
-  // 3. Handle WebRTC Call Manager state updates
+  // 3. Subscribe to active chat messages
+  useEffect(() => {
+    if (!activeChatId) {
+      setCurrentMessages([]);
+      return;
+    }
+
+    const unsubMessages = subscribeChatMessages(activeChatId, (msgs) => {
+      setCurrentMessages(msgs);
+    });
+
+    return () => unsubMessages();
+  }, [activeChatId]);
+
+  // 4. WebRTC Call Manager state updates
   useEffect(() => {
     const unsub = webrtcManager.subscribeState((state) => {
       setActiveCall(state.call);
@@ -146,22 +270,60 @@ export default function App() {
     return () => unsub();
   }, []);
 
-  // 4. Keyboard shortcuts
+  // 5. Global Keyboard Shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
-        setShowSearch((prev) => !prev);
+        setIsGlobalSearchOpen((prev) => !prev);
       } else if (e.key === 'Escape') {
         if (isAddFriendOpen) setIsAddFriendOpen(false);
         else if (isProfileModalOpen) setIsProfileModalOpen(false);
+        else if (isCreateGroupOpen) setIsCreateGroupOpen(false);
+        else if (isSettingsOpen) setIsSettingsOpen(false);
+        else if (isGlobalSearchOpen) setIsGlobalSearchOpen(false);
         else if (isSideMenuOpen) setIsSideMenuOpen(false);
-        else if (activeChatContact) setActiveChatContact(null);
+        else if (activeChatId) {
+          setActiveChatId(null);
+          setActiveChatContact(null);
+          setActiveChatGroup(null);
+        }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isAddFriendOpen, isProfileModalOpen, isSideMenuOpen, activeChatContact]);
+  }, [
+    isAddFriendOpen,
+    isProfileModalOpen,
+    isCreateGroupOpen,
+    isSettingsOpen,
+    isGlobalSearchOpen,
+    isSideMenuOpen,
+    activeChatId
+  ]);
+
+  // Open Direct Chat with contact
+  const handleSelectContact = (contact: UserProfile) => {
+    if (!currentUser) return;
+    const chatId = [currentUser.uid, contact.uid].sort().join('_');
+    setActiveChatId(chatId);
+    setActiveChatContact(contact);
+    setActiveChatGroup(null);
+  };
+
+  // Open Group Chat
+  const handleSelectGroup = (group: GroupChat) => {
+    setActiveChatId(group.id);
+    setActiveChatGroup(group);
+    setActiveChatContact(null);
+  };
+
+  // Close active chat
+  const handleCloseChat = () => {
+    setActiveChatId(null);
+    setActiveChatContact(null);
+    setActiveChatGroup(null);
+  };
 
   // Initiate Voice or Video call
   const handleInitiateCall = async (targetContact: UserProfile, type: 'voice' | 'video') => {
@@ -241,13 +403,13 @@ export default function App() {
       await signOutUser();
     }
     setCurrentUser(null);
-    setActiveChatContact(null);
+    handleCloseChat();
     showToast('Signed out successfully');
   };
 
   const handleLoginSuccess = (user: UserProfile) => {
     setCurrentUser(user);
-    showToast(`Welcome, ${user.name}!`, 'success');
+    showToast(`Welcome to AppyChat, ${user.name}!`, 'success');
   };
 
   const handleSaveProfile = async (updated: UserProfile) => {
@@ -261,31 +423,30 @@ export default function App() {
     }
   };
 
-  // Helper to lookup contact info from uid
   const getUserProfile = (uid: string): UserProfile | null => {
     if (currentUser && currentUser.uid === uid) return currentUser;
     return contacts.find((c) => c.uid === uid) || null;
   };
 
   return (
-    <div className="min-h-screen bg-[#0A0A0A] flex items-center justify-center font-['Poppins',sans-serif] text-[#FFFFFF] select-none">
+    <div className={`min-h-screen ${appSettings.theme === 'amoled' ? 'bg-black' : 'bg-[#0A0A0A]'} flex items-center justify-center font-['Poppins',sans-serif] text-[#FFFFFF] select-none p-0 sm:p-4`}>
       {/* Toast Notifications */}
       <Toast toasts={toasts} onDismiss={dismissToast} />
 
-      {/* Main App Container */}
+      {/* Main Container */}
       <div
         id="app"
-        className="w-full h-screen sm:h-[840px] sm:max-h-[95vh] sm:w-[420px] bg-[#121212] sm:rounded-3xl sm:border sm:border-[#2C2C2C] sm:shadow-[0_4px_30px_rgba(0,0,0,0.8)] flex flex-col overflow-hidden relative"
+        className="w-full h-screen sm:h-[860px] sm:max-h-[96vh] sm:w-[440px] md:w-[480px] bg-[#121212] sm:rounded-3xl sm:border sm:border-[#2C2C2C] sm:shadow-[0_8px_40px_rgba(0,0,0,0.85)] flex flex-col overflow-hidden relative"
       >
         {isAuthLoading ? (
           <div className="flex-1 flex flex-col items-center justify-center gap-3">
             <div className="w-10 h-10 border-3 border-[#00A878] border-t-transparent rounded-full animate-spin" />
-            <p className="text-xs text-[#A0A0A0]">Loading AppyChat...</p>
+            <p className="text-xs text-[#A0A0A0]">Initializing AppyChat...</p>
           </div>
         ) : (
           <div id="main-app" className="w-full h-full flex flex-col overflow-hidden">
-            {/* Top Header (shown unless inside active chat) */}
-            {!activeChatContact && (
+            {/* Top Header */}
+            {!activeChatId && (
               <Header
                 currentUser={currentUser}
                 onOpenMenu={() => setIsSideMenuOpen(true)}
@@ -297,13 +458,33 @@ export default function App() {
 
             {/* Main Content Area */}
             <main id="content-area" className="flex-1 overflow-hidden relative flex flex-col">
-              {activeChatContact && currentUser ? (
+              {activeChatId && currentUser ? (
                 <ChatView
-                  contact={activeChatContact}
+                  chatId={activeChatId}
+                  isGroup={!!activeChatGroup}
                   currentUser={currentUser}
-                  onBack={() => setActiveChatContact(null)}
-                  onInitiateCall={handleInitiateCall}
-                  onShowToast={showToast}
+                  activeContact={activeChatContact}
+                  activeGroup={activeChatGroup}
+                  messages={currentMessages}
+                  contacts={contacts}
+                  groups={groups}
+                  onBack={handleCloseChat}
+                  onStartCall={(type) => {
+                    if (activeChatContact) {
+                      handleInitiateCall(activeChatContact, type);
+                    }
+                  }}
+                  onOpenProfile={(u) => {
+                    console.log('Profile view:', u);
+                  }}
+                  bubbleStyle={appSettings.bubbleStyle}
+                  onMuteChat={handleToggleMuteChat}
+                  isMuted={
+                    activeChatId
+                      ? !!chatSettingsMap[activeChatId]?.mutedUntil &&
+                        chatSettingsMap[activeChatId]!.mutedUntil! > Date.now()
+                      : false
+                  }
                 />
               ) : (
                 <>
@@ -312,12 +493,19 @@ export default function App() {
                     <section id="home-tab" className="h-full flex flex-col">
                       <ContactList
                         contacts={contacts}
-                        onSelectContact={(c) => setActiveChatContact(c)}
+                        groups={groups}
+                        onSelectContact={handleSelectContact}
+                        onSelectGroup={handleSelectGroup}
                         onOpenAddFriend={() => setIsAddFriendOpen(true)}
+                        onOpenCreateGroup={() => setIsCreateGroupOpen(true)}
                         currentUserId={currentUser.uid}
                         searchQuery={searchQuery}
                         onSearchChange={setSearchQuery}
                         showSearch={showSearch}
+                        chatSettings={chatSettingsMap}
+                        onTogglePinChat={handleTogglePinChat}
+                        onToggleArchiveChat={handleToggleArchiveChat}
+                        onToggleMuteChat={handleToggleMuteChat}
                       />
                     </section>
                   )}
@@ -348,8 +536,8 @@ export default function App() {
               )}
             </main>
 
-            {/* Bottom Navigation (shown when not in active chat view) */}
-            {!activeChatContact && (
+            {/* Bottom Navigation */}
+            {!activeChatId && (
               <BottomNav
                 currentTab={currentTab}
                 onTabChange={(tab) => {
@@ -371,6 +559,9 @@ export default function App() {
           currentUser={currentUser}
           onOpenEditProfile={() => setIsProfileModalOpen(true)}
           onOpenAddFriend={() => setIsAddFriendOpen(true)}
+          onOpenCreateGroup={() => setIsCreateGroupOpen(true)}
+          onOpenSettings={() => setIsSettingsOpen(true)}
+          onOpenGlobalSearch={() => setIsGlobalSearchOpen(true)}
           onLogout={handleLogout}
         />
 
@@ -385,6 +576,52 @@ export default function App() {
           />
         )}
 
+        {/* Create Group Modal */}
+        {currentUser && (
+          <GroupCreateModal
+            isOpen={isCreateGroupOpen}
+            onClose={() => setIsCreateGroupOpen(false)}
+            currentUser={currentUser}
+            contacts={contacts}
+            onGroupCreated={(newGrp) => {
+              handleSelectGroup(newGrp);
+              showToast(`Group "${newGrp.name}" created!`, 'success');
+            }}
+          />
+        )}
+
+        {/* Settings Modal */}
+        {currentUser && (
+          <SettingsModal
+            isOpen={isSettingsOpen}
+            onClose={() => setIsSettingsOpen(false)}
+            currentUser={currentUser}
+            appSettings={appSettings}
+            onUpdateAppSettings={handleUpdateAppSettings}
+            onSignOut={handleLogout}
+            allUsers={contacts}
+          />
+        )}
+
+        {/* Global Search Modal */}
+        {currentUser && (
+          <GlobalSearchModal
+            isOpen={isGlobalSearchOpen}
+            onClose={() => setIsGlobalSearchOpen(false)}
+            contacts={contacts}
+            groups={groups}
+            onSelectChat={(id, isGrp) => {
+              if (isGrp) {
+                const g = groups.find((grp) => grp.id === id);
+                if (g) handleSelectGroup(g);
+              } else {
+                const c = contacts.find((cnt) => cnt.uid === id);
+                if (c) handleSelectContact(c);
+              }
+            }}
+          />
+        )}
+
         {/* Edit Profile Modal */}
         {currentUser && (
           <ProfileModal
@@ -396,13 +633,13 @@ export default function App() {
           />
         )}
 
-        {/* Auth / Login Modal (Mandatory when not authenticated) */}
+        {/* Auth / Login Modal */}
         <AuthModal
           isOpen={!currentUser && !isAuthLoading}
           onLoginSuccess={handleLoginSuccess}
         />
 
-        {/* WebRTC Calling Screens (Incoming prompt & Fullscreen Active Call UI) */}
+        {/* WebRTC Calling Screens */}
         {currentUser && (
           <CallModal
             incomingCall={incomingCall}

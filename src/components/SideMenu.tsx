@@ -8,6 +8,9 @@ interface SideMenuProps {
   currentUser: UserProfile | null;
   onOpenEditProfile: () => void;
   onOpenAddFriend: () => void;
+  onOpenCreateGroup: () => void;
+  onOpenSettings: () => void;
+  onOpenGlobalSearch: () => void;
   onLogout: () => void;
 }
 
@@ -17,6 +20,9 @@ export const SideMenu: React.FC<SideMenuProps> = ({
   currentUser,
   onOpenEditProfile,
   onOpenAddFriend,
+  onOpenCreateGroup,
+  onOpenSettings,
+  onOpenGlobalSearch,
   onLogout
 }) => {
   if (!isOpen) return null;
@@ -33,7 +39,7 @@ export const SideMenu: React.FC<SideMenuProps> = ({
       {/* Drawer */}
       <aside
         id="side-menu"
-        className="relative w-[280px] max-w-[85vw] h-full bg-[#121212] border-r border-[#2C2C2C] flex flex-col shadow-2xl z-10 animate-in slide-in-from-left duration-200"
+        className="relative w-[300px] max-w-[85vw] h-full bg-[#121212] border-r border-[#2C2C2C] flex flex-col shadow-2xl z-10 animate-in slide-in-from-left duration-200"
       >
         {/* User Profile Header */}
         <div id="user-profile-header" className="p-5 border-b border-[#2C2C2C] bg-[#1A1A1A]">
@@ -58,6 +64,7 @@ export const SideMenu: React.FC<SideMenuProps> = ({
               />
             </div>
             <button
+              type="button"
               onClick={onClose}
               className="p-1.5 rounded-lg text-[#A0A0A0] hover:text-[#FFFFFF] hover:bg-[#282828] transition-colors"
               aria-label="Close menu"
@@ -85,10 +92,11 @@ export const SideMenu: React.FC<SideMenuProps> = ({
         </div>
 
         {/* Menu Actions */}
-        <div className="flex-1 overflow-y-auto py-3 px-2">
+        <div className="flex-1 overflow-y-auto py-3 px-2 custom-scrollbar">
           <ul id="menu-items" className="space-y-1">
             <li>
               <button
+                type="button"
                 id="edit-profile-btn"
                 onClick={() => {
                   onClose();
@@ -100,8 +108,10 @@ export const SideMenu: React.FC<SideMenuProps> = ({
                 <span>Edit Profile</span>
               </button>
             </li>
+
             <li>
               <button
+                type="button"
                 id="add-friend-btn"
                 onClick={() => {
                   onClose();
@@ -110,16 +120,61 @@ export const SideMenu: React.FC<SideMenuProps> = ({
                 className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-[#E0E0E0] hover:text-[#FFFFFF] hover:bg-[#1E1E1E] transition-colors text-left"
               >
                 <Icons.add className="w-5 h-5 text-[#00A878]" />
-                <span>Add Friend</span>
+                <span>Add Contact</span>
+              </button>
+            </li>
+
+            <li>
+              <button
+                type="button"
+                id="create-group-btn"
+                onClick={() => {
+                  onClose();
+                  onOpenCreateGroup();
+                }}
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-[#E0E0E0] hover:text-[#FFFFFF] hover:bg-[#1E1E1E] transition-colors text-left"
+              >
+                <Icons.group className="w-5 h-5 text-[#00A878]" />
+                <span>New Group Chat</span>
+              </button>
+            </li>
+
+            <li>
+              <button
+                type="button"
+                id="global-search-btn"
+                onClick={() => {
+                  onClose();
+                  onOpenGlobalSearch();
+                }}
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-[#E0E0E0] hover:text-[#FFFFFF] hover:bg-[#1E1E1E] transition-colors text-left"
+              >
+                <Icons.search className="w-5 h-5 text-[#00A878]" />
+                <span>Global Search</span>
+              </button>
+            </li>
+
+            <li>
+              <button
+                type="button"
+                id="settings-btn"
+                onClick={() => {
+                  onClose();
+                  onOpenSettings();
+                }}
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-[#E0E0E0] hover:text-[#FFFFFF] hover:bg-[#1E1E1E] transition-colors text-left"
+              >
+                <Icons.settings className="w-5 h-5 text-[#00A878]" />
+                <span>Settings & Preferences</span>
               </button>
             </li>
           </ul>
 
           <div className="mt-6 p-3 bg-[#1A1A1A] border border-[#2C2C2C] rounded-2xl">
-            <p className="text-[11px] font-medium text-[#A0A0A0] mb-1">Your Direct Identifier</p>
+            <p className="text-[11px] font-medium text-[#A0A0A0] mb-1">Your AppyChat ID</p>
             <p className="text-xs font-mono font-bold text-[#00A878]">{currentUser?.identifier}</p>
             <p className="text-[10px] text-[#757575] mt-1.5 leading-normal">
-              Share your identifier with others so they can find you and send friend requests directly.
+              Share your AppyChat ID with friends to connect and chat in real-time.
             </p>
           </div>
         </div>
@@ -127,12 +182,13 @@ export const SideMenu: React.FC<SideMenuProps> = ({
         {/* Footer / Logout */}
         <div className="p-3 border-t border-[#2C2C2C] bg-[#1A1A1A]">
           <button
+            type="button"
             id="logout-btn"
             onClick={() => {
               onClose();
               onLogout();
             }}
-            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-[#FF5252] hover:bg-[#FF5252]/10 transition-colors"
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-[#FF5252] hover:bg-[#FF5252]/10 transition-colors cursor-pointer"
           >
             <Icons.logout className="w-5 h-5" />
             <span>Sign Out</span>
